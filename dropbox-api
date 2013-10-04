@@ -17,7 +17,6 @@ use WebService::Dropbox;
 
 our $VERSION = '1.09';
 
-my $limit = 10 * 1024 * 1024; # files_put_chunked method has large file support.
 
 if ($^O eq 'darwin') {
     require Encode::UTF8Mac;
@@ -37,7 +36,7 @@ for (@{[@ARGV]}) {
 }
 
 my %opts;
-getopts('ndvDsherp:', \%opts);
+getopts('ndvDsherp:l:t:c:', \%opts);
 
 push @args, @ARGV;
 
@@ -49,6 +48,14 @@ my $human     = $opts{h};
 my $printf    = $opts{p};
 my $context   = $opts{s} ? 'sandbox' : 'dropbox';
 my $env_proxy = $opts{e};
+my $limit     = $opts{l};
+my $tempdir   = $opts{t};
+
+$limit //= 4 * 1024 * 1024; # files_put_chunked method has large file support.
+
+if ($opts{c}) {
+  $config_file = file($opts{c});
+}
 
 if ($command eq '-v') {
     &help('version');
@@ -255,7 +262,7 @@ sub help {
             dropbox-api rm Public/work_bak
         };
     } elsif ($command eq 'upload' or $command eq 'up' or $command eq 'put') {
-        $help = q{
+        $help = qq{
         Name
             dropbox-api-put - upload file
 
@@ -264,6 +271,14 @@ sub help {
 
         Example
             dropbox-api put README.md dropbox:/Public/product/dropbox-api/
+            dropbox-api put README.md dropbox:/Public/product/dropbox-api/ -l 157286400
+            dropbox-api put README.md dropbox:/Public/product/dropbox-api/ -l 157286400 -v
+            dropbox-api put README.md dropbox:/Public/product/dropbox-api/ -t /var/tmp
+
+        Options
+            -l Set chunk size in bytes (default $limit, max 157286400)
+            -t Set temporary directory for chunk storage
+            -v Show progress
         };
     } elsif ($command eq 'download' or $command eq 'dl' or $command eq 'get') {
         $help = q{
@@ -738,9 +753,9 @@ sub put {
 
     return $box->files_put($path, $content, $params) if $size < $threshold;
     return $box->files_put($path, $content, $params) unless $box->can('files_put_chunked');
-    return $box->files_put_chunked($path, $content, $params) unless $verbose;
+    return $box->files_put_chunked($path, $content, $params, { 'tempdir' => $tempdir, 'debug' => $debug }, $limit) unless $verbose;
 
-    my $limit = 4 * 1024 * 1024; # A typical chunk is 4 MB
+#    my $limit = 4 * 1024 * 1024; # A typical chunk is 4 MB
 
     local $| = 1;
     my $upload;
@@ -749,7 +764,7 @@ sub put {
         my $buf;
         my $total = $limit;
         my $chunk = 1024;
-        my $tmp = File::Temp->new;
+        my $tmp = $tempdir ? File::Temp->new(DIR => $tempdir) : File::Temp->new();
         while (my $read = read($content, $buf, $chunk)) {
             $tmp->print($buf);
             $total -= $read;
