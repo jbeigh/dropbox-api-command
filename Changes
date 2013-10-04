@@ -1,5 +1,21 @@
 Revision history for dropbox-api
 
+1.14    Oct  2, 2013
+        - added LICENSE, README.md, cpanfile
+
+1.13    Jul  8, 2013
+        - Remove interpolation in printf format arguments. (thefloweringash)
+        - Ignore stty errors when stdin isn't a terminal. (thefloweringash)
+
+1.12    Jun 21, 2013
+        - Dropbox are case insensitive. (zenoamaro)
+
+1.11    Jun 20, 2013
+        - Dropbox are case insensitive.
+
+1.10    Jun 20, 2013
+        - Use lowercase for HTTP_PROXY envvar (mathstuf)
+
 1.09    Jan  8, 2013
         - fix "list" and "find" utf8 path bug.
 

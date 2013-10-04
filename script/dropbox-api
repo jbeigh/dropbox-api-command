@@ -1,6 +1,7 @@
 #!/usr/bin/env perl
 
 use strict;
+use warnings;
 use Cwd 'abs_path';
 use Data::Dumper;
 use DateTime;
@@ -15,7 +16,7 @@ use JSON;
 use Path::Class;
 use WebService::Dropbox;
 
-our $VERSION = '1.09';
+our $VERSION = '1.14';
 
 
 if ($^O eq 'darwin') {
@@ -23,10 +24,10 @@ if ($^O eq 'darwin') {
     $Encode::Locale::ENCODING_LOCALE_FS = 'utf-8-mac';
 }
 
-binmode STDOUT, ":utf8";
-binmode STDERR, ":utf8";
+binmode STDOUT, ':utf8';
+binmode STDERR, ':utf8';
 
-my $config_file = file( $ENV{'DROPBOX_CONF'} || ($ENV{'HOME'} || $ENV{'HOMEPATH'}, '.dropbox-api-config') );
+my $config_file = file( $ENV{DROPBOX_CONF} || ($ENV{HOME} || $ENV{HOMEPATH}, '.dropbox-api-config') );
 
 my $command = shift;
 my @args;
@@ -77,6 +78,10 @@ if ( my $access_level = delete $config->{access_level} ) {
         $context = 'sandbox';
     }
 }
+
+$ENV{HTTP_PROXY} = $ENV{http_proxy} if !$ENV{HTTP_PROXY} && $ENV{http_proxy};
+$ENV{NO_PROXY} = $ENV{no_proxy} if !$ENV{NO_PROXY} && $ENV{no_proxy};
+
 my $box = WebService::Dropbox->new($config);
 $box->root($context);
 $box->env_proxy if $env_proxy;
@@ -102,7 +107,7 @@ my $format = {
 my $cols = 50;
 if ($verbose) {
     eval {
-        my $stty = `stty -a`;
+        my $stty = `stty -a 2>/dev/null`;
         if ($stty =~ m|columns (\d+)| || $stty =~ m|(\d+) columns|) {
             $cols = $1;
         }
@@ -536,6 +541,10 @@ sub sync {
 
     $remote_base=~s|^dropbox:/|/|;
 
+    my $content = $box->metadata($remote_base) or die $box->error;
+
+    $remote_base = $content->{path}; # Dropbox are case insensitive!
+
     print "!! enable dry run !!\n" if $dry;
     print "remote_base: $remote_base\n" if $verbose;
     print "local_base: $local_base\n" if $verbose;
@@ -556,7 +565,7 @@ sub sync_download {
     &_find($remote_base, sub {
         my $content = shift;
         my $remote_path = $content->{path};
-        my $rel_path = abs2rel($remote_path, $remote_base);
+        my $rel_path = remote_abs2rel($remote_path, $remote_base);
         my $rel_path_enc = encode('locale_fs', $rel_path);
         $remote_map->{$rel_path}++;
         printf "check: %s\n", $rel_path if $debug;
@@ -633,17 +642,17 @@ sub sync_download {
             my $rel_path_enc = abs2rel($local_path, $local_base);
             my $rel_path = decode('locale_fs', $rel_path_enc);
             if (exists $remote_map->{$rel_path}) {
-                printf "skip $rel_path\n" if $verbose;
+                printf "skip %s\n", $rel_path if $verbose;
             } elsif (my $content = $remote_inode_map->{ &inode($local_path) }) {
                 my $remote_path = $content->{path};
-                my $rel_path_remote = abs2rel($remote_path, $remote_base);
-                printf "skip $rel_path\n" if $verbose and !$debug;
-                printf "skip $rel_path ( is $rel_path_remote )\n" if $verbose and $debug;
+                my $rel_path_remote = remote_abs2rel($remote_path, $remote_base);
+                printf "skip %s\n", $rel_path if $verbose and !$debug;
+                printf "skip %s ( is %s )\n", $rel_path, $rel_path_remote if $verbose and $debug;
             } elsif (-f $local_path) {
-                printf "remove $rel_path\n";
+                printf "remove %s\n", $rel_path;
                 push @deletes, $local_path;
             } elsif (-d $local_path) {
-                printf "rmtree $rel_path\n";
+                printf "rmtree %s\n", $rel_path;
                 push @deletes, $local_path;
             }
         }
@@ -675,7 +684,7 @@ sub sync_upload {
         delete $content->{thumb_exists};
         $content->{is_dir} = $content->{is_dir} ? 1 : 0;
         my $remote_path = $content->{path};
-        my $rel_path = abs2rel($remote_path, $remote_base);
+        my $rel_path = remote_abs2rel($remote_path, $remote_base);
         $remote_map->{ $rel_path } = $content;
         $remote_path_map->{ $content->{path} } = $content;
         printf "find: %s\n", $rel_path if $debug;
@@ -703,12 +712,12 @@ sub sync_upload {
                     $local_epoch, $local_size, $local_path if $debug;
                 if (($remote_size != $local_size) or
                     ($remote_epoch < $local_epoch)) {
-                    printf "upload $rel_path $remote_path\n";
+                    printf "upload %s %s\n", $rel_path, $remote_path;
                     &put($local_path, $remote_path,
                         { overwrite => 1 }) or die $box->error unless $dry;
                     push @makedirs, $rel_path;
                 } else {
-                    printf "skip $rel_path\n" if $verbose;
+                    printf "skip %s\n", $rel_path if $verbose;
                 }
             } elsif (-f $local_path) {
                 &put($local_path, $remote_path,
@@ -716,16 +725,16 @@ sub sync_upload {
                 if (!$dry and $box->error) {
                     warn "upload failure $rel_path $remote_path (" . $box->error . ")";
                 } else {
-                    printf "upload $rel_path $remote_path\n";
+                    printf "upload %s %s\n", $rel_path, $remote_path;
                     push @makedirs, $rel_path;
                 }
             } elsif (-d $local_path) {
                 return if grep { $_=~/^\Q$rel_path/ } @makedirs;
-                printf "mktree $rel_path $remote_path\n";
+                printf "mktree %s %s\n", $rel_path, $remote_path;
                 $box->create_folder($remote_path) or die $box->error unless $dry;
                 push @makedirs, $rel_path;
             } else {
-                printf "unknown $rel_path\n";
+                printf "unknown %s\n", $rel_path;
             }
         }
     );
@@ -739,7 +748,7 @@ sub sync_upload {
         next if grep { $content_path=~/^\Q$_/ } @deletes;
         $box->delete($content_path) or die $box->error unless $dry;
         push @deletes, $content_path;
-        my $rel_path = abs2rel($content_path, $remote_base);
+        my $rel_path = remote_abs2rel($content_path, $remote_base);
         print "delete $rel_path\n";
     }
 }
@@ -805,11 +814,17 @@ sub put {
     $upload->();
 }
 
-sub inode {
+sub inode ($) {
     my $path = shift;
     my ($dev, $inode) = stat($path);
     return $dev . ':' . $inode if $inode;
     return $path;
+}
+
+sub remote_abs2rel ($$) {
+    my ($remote_path, $remote_base) = @_;
+    $remote_path =~ s|^\Q$remote_base\E/?||i;
+    return $remote_path;
 }
 
 exit(0);
