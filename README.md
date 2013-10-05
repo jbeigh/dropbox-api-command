@@ -315,12 +315,28 @@ upload file to dropbox.
 ### Example
 
     dropbox-api put /tmp/foo.txt dropbox:/Public/
+    dropbox-api put -l 157286400 /tmp/foo.txt dropbox:/Public/ 
+    dropbox-api put -v -l 157286400i /tmp/foo.txt dropbox:/Public/
+    dropbox-api put -t /var/tmp /tmp/foo.txt dropbox:/Public/
+    dropbox-api put -c ~/dropbox-api-foo.conf /tmp/foo.txt dropbox:/Public/
+
+### config file option ( -c)
+
+Set config file to use which is useful for handling multiple dropbox accounts
+
+### limit option ( -l )
+
+Set chunk size limit in bytes (default 4194304 = 4MB, maximum 157286400 = 150MB)
+
+### tempdir option ( -t )
+
+Set directory where chunks will be temporarily stored
 
 ### verbose option ( -v )
 
 A progress bar is displayed.
 
-    dropbox-api put /tmp/1GB.dat dropbox:/Public/
+    dropbox-api put -v /tmp/1GB.dat dropbox:/Public/
     100% [=====================================================================================>]
 
 ## uid
