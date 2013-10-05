@@ -277,11 +277,13 @@ sub help {
 
         Example
             dropbox-api put README.md dropbox:/Public/product/dropbox-api/
-            dropbox-api put README.md dropbox:/Public/product/dropbox-api/ -l 157286400
-            dropbox-api put README.md dropbox:/Public/product/dropbox-api/ -l 157286400 -v
-            dropbox-api put README.md dropbox:/Public/product/dropbox-api/ -t /var/tmp
+            dropbox-api put -l 157286400 README.md dropbox:/Public/product/dropbox-api/
+            dropbox-api put -l 157286400 -v README.md dropbox:/Public/product/dropbox-api/
+            dropbox-api put -t /var/tmp README.md dropbox:/Public/product/dropbox-api/
+            dropbox-api put -c ~/dropbox-api-foo.conf README.md dropbox:/Public/product/dropbox-api/
 
         Options
+            -c Set config file
             -l Set chunk size in bytes (default $limit, max 157286400)
             -t Set temporary directory for chunk storage
             -v Show progress
