@@ -761,7 +761,9 @@ sub put {
     my $threshold = 10 * 1024 * 1024; # files_put or files_put_chunked
     my $rv = 0;
     my $offset = 0;
-    my $data;
+    my $data = {
+	'offset' => 0,
+    };
     if ($offset_init && $id) {
         $data = {
           'offset' => $offset_init,
@@ -862,8 +864,8 @@ sub put {
             $sleep = 0;
             last;
         }
-        if ( $attempt >= $attempts ) {
-            warn "Attempt $attempt of $attempts failed: exiting" if $debug;
+        if ( $attempt > $attempts ) {
+            warn "Attempt ".($attempt-1)." of $attempts failed: exiting" if $debug;
             die $box->code."\n".$box->error;
         }
         # ProgressBar
