@@ -219,6 +219,8 @@ see also list command's printf option.
 
 ## sync ( rsync )
 
+recursive file synchronization.
+
 ### sync from dropbox
 
 dropbox-api sync dropbox:&lt;source\_dir&gt; &lt;target\_dir&gt; [options]
@@ -393,6 +395,14 @@ Set directory where chunks will be temporarily stored
 A progress bar is displayed.
 
     dropbox-api put -v /tmp/1GB.dat dropbox:/Public/
+    100% [=====================================================================================>]
+
+
+### verbose option ( -v )
+
+A progress bar is displayed.
+
+    dropbox-api put /tmp/1GB.dat dropbox:/Public/
     100% [=====================================================================================>]
 
 ## uid
