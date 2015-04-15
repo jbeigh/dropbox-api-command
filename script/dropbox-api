@@ -36,7 +36,7 @@ for (@{[@ARGV]}) {
 }
 
 my %opts;
-getopts('a:c:dDehi:l:no:p:st:v', \%opts);
+getopts('a:c:dDehi:l:no:p:R:st:v', \%opts);
 
 push @args, @ARGV;
 
@@ -50,9 +50,14 @@ my $limit        = $opts{l};
 my $dry          = $opts{n};
 my $offset_init  = $opts{o};
 my $printf       = $opts{p};
+my $rev          = $opts{R};
 my $context      = $opts{s} ? 'sandbox' : 'dropbox';
 my $tempdir      = $opts{t};
 my $verbose      = $opts{v};
+
+if ($command eq 'revisions') {
+  $limit //= 10;
+}
 
 $limit //= 4 * 1024 * 1024; # files_put_chunked method has large file support.
 $attempts //= 1; # Didn't want to change original behavior by adding this option
@@ -133,6 +138,8 @@ if ($command eq 'ls' or $command eq 'list') {
     &upload(@args);
 } elsif ($command eq 'download' or $command eq 'dl' or $command eq 'get') {
     &download(@args);
+} elsif ($command eq 'revisions') {
+    &revisions(@args);
 } elsif ($command eq 'sync') {
     &sync(@args);
 } elsif ($command eq 'help' or (not length $command)) {
@@ -295,6 +302,37 @@ sub help {
         Example
             dropbox-api get dropbox:/Public/product/dropbox-api/README.md README.md
         };
+    } elsif ($command eq 'revision') {
+        $help = q{
+        Name
+            dropbox-api-revisions - get revision info for a file
+
+        SYNOPSIS
+            dropbox-api revisions <dropbox_path> [options]
+
+        Example
+            dropbox-api find Public
+            dropbox-api find Public -l 100
+            dropbox-api find Public -p "%d\t%s\t%TY/%Tm/%Td %TH:%TM:%TS\t%p\n"
+
+        Options
+            -h print sizes in human readable format (e.g., 1K 234M 2G)
+            -l revision limit (default 10)
+            -p print format.
+                %d ... is_dir ( d: dir, -: file )
+                %p ... path
+                %b ... bytes
+                %s ... size (e.g., 1K 234M 2G)
+                %i ... icon
+                %e ... thumb_exists
+                %M ... mime_type
+                %t ... modified time
+                %c ... client_mtime
+                %r ... revision (A deprecated field that semi-uniquely identifies a file. Use rev instead)
+                %R ... rev
+                %Tk ... DateTime ‘strftime’ function (modified time)
+                %Ck ... DateTime ‘strftime’ function (client_mtime)
+        };
     } elsif ($command eq 'sync') {
         $help = q{
         Name
@@ -418,6 +456,20 @@ sub list {
     }
 }
 
+sub revisions {
+    my $remote_base = decode('locale_fs', shift);
+    my $params = {};
+    if ($limit) {
+      $params->{rev_limit} = $limit;
+    }
+    my $revisions = $box->revisions($remote_base,$params) or die $box->error;
+    print Dumper($revisions),"\n" if $debug;
+      
+    for my $content (@{$revisions}) {
+        print &_line($content);
+    }
+}
+
 sub _line {
     my ($content) = @_;
     $strp ||= new DateTime::Format::Strptime( pattern => '%a, %d %b %Y %T %z' );
@@ -441,6 +493,13 @@ sub _line {
         }
         $line=~s|\%([^\%])|$content->{$format->{$1}}|eg;
         return $line;
+    } elsif ($command eq 'revisions') {
+        return sprintf "%s %8s %s %s %s\n",
+            ($content->{is_dir} ? 'd' : '-'),
+            ($content->{is_dir} ? '-' : $content->{$size}),
+            $content->{rev},
+            $content->{modified},
+            $content->{path};
     } else {
         return sprintf "%s %8s %s %s\n",
             ($content->{is_dir} ? 'd' : '-'),
@@ -513,7 +572,11 @@ sub download {
     $path=~s|^dropbox:/||
         or die "Usage: \n    dropbox-api download dropbox:/Public/some.txt /tmp/local.txt";
     my $fh = file($file)->openw or die $!;
-    $box->files(decode('locale_fs', $path), $fh) or die $box->error;
+    my $params = {};
+    if ($rev) {
+      $params->{rev} = $rev;
+    }
+    $box->files(decode('locale_fs', $path), $fh, $params) or die $box->error;
     $fh->close;
 }
 
