@@ -1,7 +1,6 @@
 #!/usr/bin/env perl
 
 use strict;
-use warnings;
 use Cwd 'abs_path';
 use Data::Dumper;
 use DateTime;
@@ -18,17 +17,16 @@ use WebService::Dropbox;
 
 our $VERSION = '1.17';
 
-my $limit = 10 * 1024 * 1024; # files_put_chunked method has large file support.
 
 if ($^O eq 'darwin') {
     require Encode::UTF8Mac;
     $Encode::Locale::ENCODING_LOCALE_FS = 'utf-8-mac';
 }
 
-binmode STDOUT, ':utf8';
-binmode STDERR, ':utf8';
+binmode STDOUT, ":utf8";
+binmode STDERR, ":utf8";
 
-my $config_file = file( $ENV{DROPBOX_CONF} || ($ENV{HOME} || $ENV{HOMEPATH}, '.dropbox-api-config') );
+my $config_file = file( $ENV{'DROPBOX_CONF'} || ($ENV{'HOME'} || $ENV{'HOMEPATH'}, '.dropbox-api-config') );
 
 my $command = shift;
 my @args;
@@ -38,18 +36,35 @@ for (@{[@ARGV]}) {
 }
 
 my %opts;
-getopts('ndvDsherp:', \%opts);
+getopts('a:c:dDehi:l:no:p:R:st:v', \%opts);
 
 push @args, @ARGV;
 
-my $dry       = $opts{n};
-my $delete    = $opts{d};
-my $verbose   = $opts{v};
-my $debug     = $opts{D};
-my $human     = $opts{h};
-my $printf    = $opts{p};
-my $context   = $opts{s} ? 'sandbox' : 'dropbox';
-my $env_proxy = $opts{e};
+my $attempts     = $opts{a};
+my $delete       = $opts{d};
+my $debug        = $opts{D};
+my $env_proxy    = $opts{e};
+my $human        = $opts{h};
+my $id           = $opts{i};
+my $limit        = $opts{l};
+my $dry          = $opts{n};
+my $offset_init  = $opts{o};
+my $printf       = $opts{p};
+my $rev          = $opts{R};
+my $context      = $opts{s} ? 'sandbox' : 'dropbox';
+my $tempdir      = $opts{t};
+my $verbose      = $opts{v};
+
+if ($command eq 'revisions') {
+  $limit //= 10;
+}
+
+$limit //= 4 * 1024 * 1024; # files_put_chunked method has large file support.
+$attempts //= 1; # Didn't want to change original behavior by adding this option
+
+if ($opts{c}) {
+  $config_file = file($opts{c});
+}
 
 if ($command eq '-v') {
     &help('version');
@@ -71,10 +86,6 @@ if ( my $access_level = delete $config->{access_level} ) {
         $context = 'sandbox';
     }
 }
-
-$ENV{HTTP_PROXY} = $ENV{http_proxy} if !$ENV{HTTP_PROXY} && $ENV{http_proxy};
-$ENV{NO_PROXY} = $ENV{no_proxy} if !$ENV{NO_PROXY} && $ENV{no_proxy};
-
 my $box = WebService::Dropbox->new($config);
 $box->root($context);
 $box->env_proxy if $env_proxy;
@@ -100,7 +111,7 @@ my $format = {
 my $cols = 50;
 if ($verbose) {
     eval {
-        my $stty = `stty -a 2>/dev/null`;
+        my $stty = `stty -a`;
         if ($stty =~ m|columns (\d+)| || $stty =~ m|(\d+) columns|) {
             $cols = $1;
         }
@@ -127,6 +138,8 @@ if ($command eq 'ls' or $command eq 'list') {
     &upload(@args);
 } elsif ($command eq 'download' or $command eq 'dl' or $command eq 'get') {
     &download(@args);
+} elsif ($command eq 'revisions') {
+    &revisions(@args);
 } elsif ($command eq 'sync') {
     &sync(@args);
 } elsif ($command eq 'help' or (not length $command)) {
@@ -260,7 +273,7 @@ sub help {
             dropbox-api rm Public/work_bak
         };
     } elsif ($command eq 'upload' or $command eq 'up' or $command eq 'put') {
-        $help = q{
+        $help = qq{
         Name
             dropbox-api-put - upload file
 
@@ -269,6 +282,14 @@ sub help {
 
         Example
             dropbox-api put README.md dropbox:/Public/product/dropbox-api/
+            dropbox-api put README.md dropbox:/Public/product/dropbox-api/ -l 157286400
+            dropbox-api put README.md dropbox:/Public/product/dropbox-api/ -l 157286400 -v
+            dropbox-api put README.md dropbox:/Public/product/dropbox-api/ -t /var/tmp
+
+        Options
+            -l Set chunk size in bytes (default $limit, max 157286400)
+            -t Set temporary directory for chunk storage
+            -v Show progress
         };
     } elsif ($command eq 'download' or $command eq 'dl' or $command eq 'get') {
         $help = q{
@@ -280,6 +301,37 @@ sub help {
 
         Example
             dropbox-api get dropbox:/Public/product/dropbox-api/README.md README.md
+        };
+    } elsif ($command eq 'revision') {
+        $help = q{
+        Name
+            dropbox-api-revisions - get revision info for a file
+
+        SYNOPSIS
+            dropbox-api revisions <dropbox_path> [options]
+
+        Example
+            dropbox-api find Public
+            dropbox-api find Public -l 100
+            dropbox-api find Public -p "%d\t%s\t%TY/%Tm/%Td %TH:%TM:%TS\t%p\n"
+
+        Options
+            -h print sizes in human readable format (e.g., 1K 234M 2G)
+            -l revision limit (default 10)
+            -p print format.
+                %d ... is_dir ( d: dir, -: file )
+                %p ... path
+                %b ... bytes
+                %s ... size (e.g., 1K 234M 2G)
+                %i ... icon
+                %e ... thumb_exists
+                %M ... mime_type
+                %t ... modified time
+                %c ... client_mtime
+                %r ... revision (A deprecated field that semi-uniquely identifies a file. Use rev instead)
+                %R ... rev
+                %Tk ... DateTime ‘strftime’ function (modified time)
+                %Ck ... DateTime ‘strftime’ function (client_mtime)
         };
     } elsif ($command eq 'sync') {
         $help = q{
@@ -404,6 +456,20 @@ sub list {
     }
 }
 
+sub revisions {
+    my $remote_base = decode('locale_fs', shift);
+    my $params = {};
+    if ($limit) {
+      $params->{rev_limit} = $limit;
+    }
+    my $revisions = $box->revisions($remote_base,$params) or die $box->error;
+    print Dumper($revisions),"\n" if $debug;
+      
+    for my $content (@{$revisions}) {
+        print &_line($content);
+    }
+}
+
 sub _line {
     my ($content) = @_;
     $strp ||= new DateTime::Format::Strptime( pattern => '%a, %d %b %Y %T %z' );
@@ -427,6 +493,13 @@ sub _line {
         }
         $line=~s|\%([^\%])|$content->{$format->{$1}}|eg;
         return $line;
+    } elsif ($command eq 'revisions') {
+        return sprintf "%s %8s %s %s %s\n",
+            ($content->{is_dir} ? 'd' : '-'),
+            ($content->{is_dir} ? '-' : $content->{$size}),
+            $content->{rev},
+            $content->{modified},
+            $content->{path};
     } else {
         return sprintf "%s %8s %s %s\n",
             ($content->{is_dir} ? 'd' : '-'),
@@ -499,7 +572,11 @@ sub download {
     $path=~s|^dropbox:/||
         or die "Usage: \n    dropbox-api download dropbox:/Public/some.txt /tmp/local.txt";
     my $fh = file($file)->openw or die $!;
-    $box->files(decode('locale_fs', $path), $fh) or die $box->error;
+    my $params = {};
+    if ($rev) {
+      $params->{rev} = $rev;
+    }
+    $box->files(decode('locale_fs', $path), $fh, $params) or die $box->error;
     $fh->close;
 }
 
@@ -526,10 +603,6 @@ sub sync {
 
     $remote_base=~s|^dropbox:/|/|;
 
-    my $content = $box->metadata($remote_base) or die $box->error;
-
-    $remote_base = $content->{path}; # Dropbox are case insensitive!
-
     print "!! enable dry run !!\n" if $dry;
     print "remote_base: $remote_base\n" if $verbose;
     print "local_base: $local_base\n" if $verbose;
@@ -550,7 +623,7 @@ sub sync_download {
     &_find($remote_base, sub {
         my $content = shift;
         my $remote_path = $content->{path};
-        my $rel_path = remote_abs2rel($remote_path, $remote_base);
+        my $rel_path = abs2rel($remote_path, $remote_base);
         my $rel_path_enc = encode('locale_fs', $rel_path);
         $remote_map->{$rel_path}++;
         printf "check: %s\n", $rel_path if $debug;
@@ -632,17 +705,17 @@ sub sync_download {
             my $rel_path_enc = abs2rel($local_path, $local_base);
             my $rel_path = decode('locale_fs', $rel_path_enc);
             if (exists $remote_map->{$rel_path}) {
-                printf "skip %s\n", $rel_path if $verbose;
+                printf "skip $rel_path\n" if $verbose;
             } elsif (my $content = $remote_inode_map->{ &inode($local_path) }) {
                 my $remote_path = $content->{path};
-                my $rel_path_remote = remote_abs2rel($remote_path, $remote_base);
-                printf "skip %s\n", $rel_path if $verbose and !$debug;
-                printf "skip %s ( is %s )\n", $rel_path, $rel_path_remote if $verbose and $debug;
+                my $rel_path_remote = abs2rel($remote_path, $remote_base);
+                printf "skip $rel_path\n" if $verbose and !$debug;
+                printf "skip $rel_path ( is $rel_path_remote )\n" if $verbose and $debug;
             } elsif (-f $local_path) {
-                printf "remove %s\n", $rel_path;
+                printf "remove $rel_path\n";
                 push @deletes, $local_path;
             } elsif (-d $local_path) {
-                printf "rmtree %s\n", $rel_path;
+                printf "rmtree $rel_path\n";
                 push @deletes, $local_path;
             }
         }
@@ -674,7 +747,7 @@ sub sync_upload {
         delete $content->{thumb_exists};
         $content->{is_dir} = $content->{is_dir} ? 1 : 0;
         my $remote_path = $content->{path};
-        my $rel_path = remote_abs2rel($remote_path, $remote_base);
+        my $rel_path = abs2rel($remote_path, $remote_base);
         $remote_map->{ $rel_path } = $content;
         $remote_path_map->{ $content->{path} } = $content;
         printf "find: %s\n", $rel_path if $debug;
@@ -702,12 +775,12 @@ sub sync_upload {
                     $local_epoch, $local_size, $local_path if $debug;
                 if (($remote_size != $local_size) or
                     ($remote_epoch < $local_epoch)) {
-                    printf "upload %s %s\n", $rel_path, $remote_path;
+                    printf "upload $rel_path $remote_path\n";
                     &put($local_path, $remote_path,
                         { overwrite => 1 }) or die $box->error unless $dry;
                     push @makedirs, $rel_path;
                 } else {
-                    printf "skip %s\n", $rel_path if $verbose;
+                    printf "skip $rel_path\n" if $verbose;
                 }
             } elsif (-f $local_path) {
                 &put($local_path, $remote_path,
@@ -715,16 +788,16 @@ sub sync_upload {
                 if (!$dry and $box->error) {
                     warn "upload failure $rel_path $remote_path (" . $box->error . ")";
                 } else {
-                    printf "upload %s %s\n", $rel_path, $remote_path;
+                    printf "upload $rel_path $remote_path\n";
                     push @makedirs, $rel_path;
                 }
             } elsif (-d $local_path) {
                 return if grep { $_=~/^\Q$rel_path/ } @makedirs;
-                printf "mktree %s %s\n", $rel_path, $remote_path;
+                printf "mktree $rel_path $remote_path\n";
                 $box->create_folder($remote_path) or die $box->error unless $dry;
                 push @makedirs, $rel_path;
             } else {
-                printf "unknown %s\n", $rel_path;
+                printf "unknown $rel_path\n";
             }
         }
     );
@@ -738,33 +811,47 @@ sub sync_upload {
         next if grep { $content_path=~/^\Q$_/ } @deletes;
         $box->delete($content_path) or die $box->error unless $dry;
         push @deletes, $content_path;
-        my $rel_path = remote_abs2rel($content_path, $remote_base);
+        my $rel_path = abs2rel($content_path, $remote_base);
         print "delete $rel_path\n";
     }
 }
 
 sub put {
+    # Rearranged by Scott Reid to reattempt chunks and decrease complication
     my ($file, $path, $params) = @_;
-
     my $content   = $file->openr;
     my $size      = -s $file;
     my $threshold = 10 * 1024 * 1024; # files_put or files_put_chunked
+    my $rv = 0;
+    my $offset = 0;
+    my $data = {
+	'offset' => 0,
+    };
+    if ($offset_init && $id) {
+        $data = {
+          'offset' => $offset_init,
+          'upload_id' => $id,
+        };
+        $offset = $offset_init;
+    }
 
     return $box->files_put($path, $content, $params) if $size < $threshold;
     return $box->files_put($path, $content, $params) unless $box->can('files_put_chunked');
-    return $box->files_put_chunked($path, $content, $params) unless $verbose;
+    return $box->files_put_chunked($path, $content, $params, { 'tempdir' => $tempdir, 'debug' => $debug }, $limit) unless $verbose;
 
-    my $limit = 4 * 1024 * 1024; # A typical chunk is 4 MB
-
-    local $| = 1;
-    my $upload;
-    $upload = sub {
-        my $data = shift;
-        my $buf;
+#    my $limit = 4 * 1024 * 1024; # A typical chunk is 4 MB
+    use POSIX;
+    # Enable autoflush
+    $|++;
+    my $buf;
+    CHUNK: while ($offset <= $size) {
         my $total = $limit;
         my $chunk = 1024;
-        my $tmp = File::Temp->new;
+        my $tmp = $tempdir ? File::Temp->new(TEMPLATE => 'dbapiXXXXXXXXXXXX', DIR => $tempdir, UNLINK => 1) : File::Temp->new(TEMPLATE => 'dbapiXXXXXXXXXXXX', UNLINK => 1);
+        seek($content,$data->{offset},0);
+        
         while (my $read = read($content, $buf, $chunk)) {
+            if (! defined($read)) { die "Error reading from \$content\n$!" }
             $tmp->print($buf);
             $total -= $read;
             if ($chunk > $total) {
@@ -772,49 +859,103 @@ sub put {
             }
             last unless $chunk;
         }
-
         if ($total == $limit) {
             $data->{upload_id} or die $file . ' read error.';
             print "\n";
-            return $box->commit_chunked_upload(
-                $path, {
-                    upload_id => $data->{upload_id},
-                    ( $params ? %$params : () )
-                }) or die $box->error;
+            my $commit_attempt = 0;
+            do {
+              $commit_attempt++;
+              if ($debug) { warn "all chunks uploaded: committing attempt $commit_attempt of $attempts" }
+              $rv = $box->commit_chunked_upload(
+                  $path, {
+                      upload_id => $data->{upload_id},
+                      ( $params ? %$params : () )
+                  });
+              warn $box->code."\n".$box->error if (! $rv);
+            } while (! $rv && $commit_attempt < $attempts );
+            return $rv;
         }
-
         $tmp->flush;
         $tmp->seek(0, 0);
-        $data = $box->chunked_upload($tmp, {
-            ( $data   ? %$data   : () ),
-            ( $params ? %$params : () )
-        }) or die $box->error;
+        my $attempt = 0;
+        my $sleep = 0;
+        while ( $attempt < $attempts ) {
+            if ($attempt) {
+                if ($debug) {
+                    warn "Attempt $attempt of $attempts failed at ".strftime("%F %T",localtime);
+                    warn $box->code."\n".$box->error;
+                }
+                # reset seek
+                $tmp->seek(0, 0);
+                sleep $sleep;
+                $sleep += 10;
+                if ($box->code == 400) {
+                    use JSON;
+                    my $error = decode_json($box->error);
+                    if ($error->{offset} != $data->{offset})
+                    {
+                        warn "Setting \$data{offset} to $error->{offset}" if $debug;
+                        $data->{offset} = $error->{offset};
+                        $offset = $data->{offset};
+                        # Go back to read to upload the correct chunk
+                        next CHUNK;
+                    }
+                }
+            }
 
+            $attempt++;
+            if ($debug) {
+                warn "offset $data->{offset} chunked_upload attempt $attempt of $attempts of ".$tmp->filename." starting at ".strftime("%F %T",localtime);
+            }
+            my $newdata = $box->chunked_upload($tmp, {
+                ( $data   ? %$data   : () ),
+                ( $params ? %$params : () )
+                }) or next;
+            if ($debug) { 
+              warn "offset $data->{offset} success";
+              warn $box->code."\n".$box->error;
+            }
+            $offset += ($limit - $total);
+            use Storable qw(dclone);
+            $data = dclone($newdata);
+            if ($debug) { use Data::Dumper; warn Data::Dumper->Dump([$data], [qw($data)])."\n"; }
+            if ($data->{offset} != $offset) {
+                warn "WARNING \$data{offset} ".$data->{offset}." != \$offset $offset";
+                # Trust offset given by Dropbox to avoid sending the wrong chunk
+                $offset = $data->{offset};
+            }
+            $sleep = 0;
+            last;
+        }
+        if ( $attempt > $attempts ) {
+            warn "Attempt ".($attempt-1)." of $attempts failed: exiting" if $debug;
+            die $box->code."\n".$box->error;
+        }
         # ProgressBar
         my $rate = sprintf '%2.1d%', $data->{offset} / $size * 100;
         my $bar = '=' x int(($cols - length($rate) - 4) * $data->{offset} / $size);
         my $space = ' ' x ($cols - length($rate) - length($bar) - 4);
         printf "\r%s [%s>%s]", $rate, $bar, $space;
-
-        $upload->({
-            upload_id => $data->{upload_id},
-            offset    => $data->{offset}
-        });
-    };
-    $upload->();
+    }
+    # I don't think it should ever get here, so warn
+    warn "put is in no man's land at $offset / $size uploaded";
+    return $rv;
 }
 
-sub inode ($) {
+sub inode {
     my $path = shift;
     my ($dev, $inode) = stat($path);
     return $dev . ':' . $inode if $inode;
     return $path;
 }
 
-sub remote_abs2rel ($$) {
-    my ($remote_path, $remote_base) = @_;
-    $remote_path =~ s|^\Q$remote_base\E/?||i;
-    return $remote_path;
+exit(0);
+
+sub inode {
+    my $path = shift;
+    my ($dev, $inode) = stat($path);
+    return $dev . ':' . $inode if $inode;
+    return $path;
 }
 
 exit(0);

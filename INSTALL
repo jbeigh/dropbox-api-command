@@ -1,0 +1,3 @@
+Ubuntu)
+  sudo apt-get install make gcc libssl-dev wget libdatetime-perl libdatetime-format-strptime-perl libencode-locale-perl libjson-perl libpath-class-perl liburi-perl libhttp-message-perl liblwp-protocol-https-perl libnet-oauth-perl libfile-listing-perl libhttp-cookies-perl libhttp-daemon-perl libhttp-negotiate-perl libnet-http-perl libwww-robotrules-perl
+  perl -MCPAN -e 'install WebService::Dropbox'
