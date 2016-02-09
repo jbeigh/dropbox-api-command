@@ -140,6 +140,8 @@ if ($command eq 'ls' or $command eq 'list') {
     &download(@args);
 } elsif ($command eq 'revisions') {
     &revisions(@args);
+} elsif ($command eq 'shares') {
+    &shares(@args);
 } elsif ($command eq 'sync') {
     &sync(@args);
 } elsif ($command eq 'help' or (not length $command)) {
@@ -578,6 +580,15 @@ sub download {
     }
     $box->files(decode('locale_fs', $path), $fh, $params) or die $box->error;
     $fh->close;
+}
+
+sub shares {
+    my ($path) = @_;
+    $path=~s|^dropbox:/||
+        or die "Usage: \n    dropbox-api shares dropbox:/Public/some.txt";
+    my $params = {};
+    my $res = $box->shares(decode('locale_fs', $path), $params) or die $box->error;
+    print Dumper($res), "\n" if $verbose;
 }
 
 sub sync {

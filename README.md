@@ -91,17 +91,18 @@ disp help.
     Usage: dropbox-api <command> [args] [options]
 
     Available commands:
-        setup get access_key and access_secret
-        ls    list directory contents
-        find  walk a file hierarchy
-        cp    copy file or directory
-        mv    move file or directory
-        mkdir make directory (Create intermediate directories as required)
-        rm    remove file or directory (Attempt to remove the file hierarchy rooted in each file argument)
-        put   upload file
-        get   download file
-        sync  sync directory (local => dropbox or dropbox => local)
-        uid   get accound uid
+        setup   get access_key and access_secret
+        ls      list directory contents
+        find    walk a file hierarchy
+        cp      copy file or directory
+        mv      move file or directory
+        mkdir   make directory (Create intermediate directories as required)
+        rm      remove file or directory (Attempt to remove the file hierarchy rooted in each file argument)
+        put     upload file
+        get     download file
+        sync    sync directory (local => dropbox or dropbox => local)
+        uid     get accound uid
+        shares  set file or directory to shareable
 
     Common Options
         -e enable env_proxy ( HTTP_PROXY, NO_PROXY )
@@ -412,6 +413,18 @@ Get your accound UID
 ### Example
 
     dropbox-api uid
+
+## shares
+
+Set file/directory to shareable
+
+### verbose option ( -v )
+
+Show response including link
+
+### Example
+
+  dropbox-api shares dropbox&lt;dropbox_dir&gt;
 
 ## Tips
 
