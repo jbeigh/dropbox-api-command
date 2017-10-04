@@ -149,6 +149,8 @@ if ($command eq 'ls' or $command eq 'list') {
     &du(@args);
 } elsif ($command eq 'copy' or $command eq 'cp') {
     &copy(@args);
+} elsif ($command eq 'meta') {
+    &meta(@args);
 } elsif ($command eq 'move' or $command eq 'mv') {
     &move(@args);
 } elsif ($command eq 'mkdir' or $command eq 'mkpath') {
@@ -261,6 +263,17 @@ sub help {
         Example
             dropbox-api cp /Public/hoge.txt /Public/foo.txt
             dropbox-api cp /Public/work /Public/work_bak
+        };
+    } elsif ($command eq 'meta') {
+        $help = q{
+        Name
+            dropbox-api-meta - list remote file metadata
+
+        SYNOPSIS
+            dropbox-api meta <target_file>
+
+        Example
+            dropbox-api meta /Public/foo.txt
         };
     } elsif ($command eq 'move' or $command eq 'mv') {
         $help = q{
@@ -592,6 +605,15 @@ sub copy {
     my ($src, $dst) = @_;
     my $res = $box->copy(decode('locale_fs', slash($src)), decode('locale_fs', slash($dst))) or die $box->error;
     print pretty($res) if $verbose;
+}
+
+sub meta {
+    my $remote_base = decode('locale_fs', slash(shift));
+    if ($remote_base eq '/') {
+        $remote_base = '';
+    }
+    my $meta = $box->get_metadata($remote_base) or die $box->error;
+    print pretty($meta);
 }
 
 sub move {
