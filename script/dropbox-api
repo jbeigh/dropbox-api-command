@@ -41,7 +41,7 @@ my %opts;
 if ($command eq 'du') {
     getopts('vDhed:', \%opts);
 } else {
-    getopts('ndvDshePp:', \%opts);
+    getopts('c:ndvDshePp:', \%opts);
 }
 
 push @args, @ARGV;
@@ -55,6 +55,10 @@ my $printf    = $opts{p};
 my $public    = $opts{P};
 my $env_proxy = $opts{e};
 my $max_depth = $opts{d};
+
+if ($opts{c}) {
+  $config_file = file($opts{c});
+}
 
 if ($opts{s}) {
     die "-s is gone.";
